@@ -60,3 +60,30 @@ Functionalities
 Goal
 The project’s primary goal is to evaluate the reliability and usability of synthetic health data in research and clinical contexts. By combining statistical resemblance, prevalence consistency, predictive utility, and explainability, the tool helps determine whether synthetic datasets can serve as valid substitutes for real patient data while preserving privacy.
 
+
+Installation & Setup
+
+Prerequisites
+Before running the application, please make sure you have the following installed on your system:
+- [Anaconda](https://www.anaconda.com/download) or Miniconda
+- Python 3.9+
+- Git
+
+### Steps
+1. Clone the repository
+   Open a terminal and run:
+   bash
+   git clone https://github.com/yourusername/synthetic-health-evaluator.git
+   cd synthetic-health-evaluator
+2. Create the environment  
+   Use the provided thesis_env.yml file to recreate the environment:
+   conda env create -f thesis_env.yml
+   conda activate thesis_env
+3. Run the dashboard
+   Start the application (on any terminal )via:
+   python thesis_frontend.py
+4. Open your browser and access the app via:
+   http://127.0.0.1:8050/
+
+
+
