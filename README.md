@@ -86,4 +86,15 @@ Before running the application, please make sure you have the following installe
    http://127.0.0.1:8050/
 
 
+References & Inspiration
+
+This thesis project was inspired by and builds upon the work of Santangelo et al. (2025):
+
+> Santangelo, G., et al. **How good is your synthetic data? SynthRO, a dashboard to evaluate and benchmark synthetic tabular data**.
+> Published in **National Library of Medicine**.  
+> [PMC Article Link](https://pmc.ncbi.nlm.nih.gov/articles/PMC11837667)
+
+Their study provided the foundational concepts and motivation for evaluating synthetic health data, particularly in terms of **data resemblance, utility, and explainability**. This project adapts and extends those ideas into a practical evaluation framework and interactive dashboard, enabling researchers to apply similar methodologies in real-world synthetic data validation.
+
+
 
