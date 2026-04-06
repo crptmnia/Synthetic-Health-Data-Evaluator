@@ -94,7 +94,9 @@ This thesis project was inspired by and builds upon the work of Santangelo et al
 > Published in **National Library of Medicine**.  
 > [PMC Article Link](https://pmc.ncbi.nlm.nih.gov/articles/PMC11837667)
 
-Their study provided the foundational concepts and motivation for evaluating synthetic health data, particularly in terms of **data resemblance, utility, and explainability**. This project adapts and extends those ideas into a practical evaluation framework and interactive dashboard, enabling researchers to apply similar methodologies in real-world synthetic data validation.
+Their study provided the foundational concepts and motivation for evaluating synthetic health data, particularly in terms of **data resemblance** and **utility**. This project adapts and extends those ideas into a practical evaluation framework and interactive dashboard.  
+
+A key contribution of this thesis is the addition of an **Explainable AI (XAI) module using SHAP**, which was not part of Santangelo et al.’s original work. This enhancement allows users to interpret predictive models trained on synthetic data, offering transparency into feature importance and model behavior, thereby strengthening the evaluation framework beyond resemblance and utility alone.
 
 
 
