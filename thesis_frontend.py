@@ -42,6 +42,13 @@ from utility_backend import run_trtr, run_tstr, preprocess_dataframe
 import shap
 from xai_backend import load_model_from_pkl, generate_shap_explanations
 
+# PDF imports
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
+from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.lib.units import inch
+from pdf_report import create_pdf_report
+
+
 # ---------------------------------------------------------------------
 # App initialization
 # ---------------------------------------------------------------------
@@ -58,11 +65,20 @@ app.title = "Synthetic Health Data Evaluation"
 # Layout components
 # ---------------------------------------------------------------------
 
+# moved up so it is always present
+export_button = dbc.Button(
+    "Export Results",
+    id="export-button",
+    color="warning",
+    className="mt-3"
+)
+
 navbar = dbc.NavbarSimple(
     brand="Synthetic Health Data Evaluation",
     color="primary",
     dark=True,
-    sticky="top"
+    sticky="top",
+    children=[export_button, dcc.Download(id="download-pdf")]
 )
 
 tabs = dbc.Tabs(
@@ -73,7 +89,8 @@ tabs = dbc.Tabs(
             tab_id="tab-load",
             children=[
                 html.H4("Load Data Tab"),
-                html.P("Upload a dataset and preview the first few rows. Select multiple for multiple dataset comparisons.", style={'fontStyle': 'italic'}),
+                html.P("Upload a dataset and preview the first few rows. Select multiple (via Ctrl) for dataset comparisons.", style={'fontStyle': 'italic'}),
+                html.P("Please note that the tests expect all values to be numerical and not categorical."),
                 html.P("Supported formats: CSV, Excel (.xls/.xlsx)", style={'fontStyle': 'italic'}),
 
                 dcc.Upload(
@@ -90,6 +107,7 @@ tabs = dbc.Tabs(
                 dcc.Store(id='stored-data')
             ]
         ),
+        
 
         # DPCM2 Tab
         dbc.Tab(
@@ -99,7 +117,7 @@ tabs = dbc.Tabs(
                 html.H4("DPCM2 Tab"),
                 html.P("Type 2 Diabetes Prevalence Consistency Measurement tests the prevalence of known characteristics of having type 2 diabetes between the original and synthetic dataset."),
                 html.P("It is a supporting measure to check if the synthetic data captures important relationships in the original data, but it is not a comprehensive evaluation on its own."),
-                html.P("Must upload one synthetic and one dataset for comparison"),
+                html.P("Must upload one synthetic and one dataset for comparison."),
                 dbc.Button("Run DPCM2 Evaluation", id='run-dpcm2', color="success", className="mt-3"),
                 dbc.Button("Per attribute similarity", id='show-attributes', color="info", className="mt-3", style={"marginLeft": "10px"}),
                 html.Div(id='dpcm2-results', style={'marginTop': '20px'}),
@@ -129,7 +147,7 @@ tabs = dbc.Tabs(
             tab_id="tab-utility",
             children=[
                 html.H4("Utility Tab"),
-                html.P("Evaluate downstream task performance using synthetic vs real datasets."),
+                html.P("Evaluate how well synthetic data works in predictions."),
 
                 # Step 1: Assign datasets
                 html.H5("Step 1: Assign Synthetic and Real"),
@@ -164,53 +182,62 @@ tabs = dbc.Tabs(
             children=[
                 html.H4("Explainable AI (XAI) Tab"),
                 html.P("Upload trained model files (.pkl) and generate SHAP explanations."),
+                html.P("SHAP tells us how each feature contributed to the predictions. Higher values means they contribute more towards the prediction."),
+                html.P("Global Importance Pattern: X-axis are the SHAP values, which represent the impact of each feature on prediction, Y-axis: the list of features, with varying colors per dot which shows the dots value, Dots: each dot is one patient/sample"),
+                html.P("Dependence plots: X-axis = feature values, Y-axis: SHAP values (impact on prediction)."),
 
-            dcc.Upload(
-                id="upload-model",
-                children=html.Div(["Drag and Drop or ", html.A("Select a .pkl file")]),
-                multiple=False,
-                accept=".pkl",
-                style={
-                    "width": "100%", "height": "60px", "lineHeight": "60px",
-                    "borderWidth": "1px", "borderStyle": "dashed",
-                    "borderRadius": "5px", "textAlign": "center", "margin": "10px"
-                }
-            ),
+        dcc.Upload(
+            id="upload-model",
+            children=html.Div(["Drag and Drop or ", html.A("Select a .pkl file")]),
+            multiple=False,
+            accept=".pkl",
+            style={
+                "width": "100%",
+                "height": "60px",
+                "lineHeight": "60px",
+                "borderWidth": "1px",
+                "borderStyle": "dashed",
+                "borderRadius": "5px",
+                "textAlign": "center",
+                "margin": "10px",
+            },
+        ),
 
             dcc.Store(id="stored-model"),
 
+            html.Div(id="upload-status"),
+
             html.Hr(),
 
-            dbc.Button("Run SHAP Explanation", id="run-shap", color="primary"),
+            dbc.Button(
+                "Run SHAP Explanation",
+                id="run-shap",
+                color="primary",
+                n_clicks=0
+            ),
 
-            html.Div(id="xai-results")
+                html.Div(id="xai-results"),
             ]
-        )
-
-    ],
-    id="main-tabs",
-    active_tab="tab-load"
+        ),
+    ]
 )
 
-export_button = dbc.Button(
-    "Export Results",
-    id="export-button",
-    color="warning",
-    className="mt-3"
-)
+
 
 app.layout = dbc.Container(
     [
         navbar,
         html.Br(),
-
         tabs,
 
+        # Store the results
+        dcc.Store(id="store-dpcm2-results"),
+        dcc.Store(id="store-dpcm2-attributes"),
+        dcc.Store(id="store-resemblance-results"),
+        dcc.Store(id="store-utility-results"),
+        dcc.Store(id="store-xai-results"),
+
         html.Hr(),
-        html.Div(
-            export_button,
-            style={"textAlign": "right"}
-        )
     ],
     fluid=True
 )
@@ -275,64 +302,76 @@ def handle_upload(contents, filenames):
 # DPCM2 Tab Function Start ----------
 # Final Score callback Start ------
 @app.callback(
-    Output('dpcm2-results', 'children'),
+    [Output('dpcm2-results', 'children'),
+    Output('store-dpcm2-results', 'data')],
     Input('run-dpcm2', 'n_clicks'),
     State('stored-data', 'data'),
     prevent_initial_call=True
 )
 def run_dpcm2(n_clicks, datasets):
     if not datasets or len(datasets) < 2:
-        return dbc.Alert("Please upload 2 datasets before running DPCM2.", color="warning")
-
-    # Convert stored dicts back to DataFrames
-    df1 = pd.DataFrame(datasets[0]['data'])
-    df2 = pd.DataFrame(datasets[1]['data'])
-    fname1 = datasets[0]['filename']
-    fname2 = datasets[1]['filename']
-
-    # Call backend function
-    try:
-        results = compute_dpcm2(df1, df2, name1=fname1, name2=fname2)
-    except Exception as e:
-        return dbc.Alert(f"Error during DPCM2 computation: {str(e)}", color="danger")
-
-    # Final Score
-    return html.Div([
-        dbc.Alert(
-            f"DPCM2 Score ({fname1} vs {fname2}): {results['dpcm2_final_score']:.2f}%",
-            color = "success"
-        ),
-        dbc.Alert(
-            "Interpretation: A value close to 100% means the two datasets show very high similarity "
-            "in Type 2 Diabetes prevalence patterns. Lower calues indicate greater divergence.",
-            color = "info"
+        return (
+            dbc.Alert("Please upload 2 datasets before running DPCM2.", color="warning"),
+            None
         )
-    ])
+
+    try:
+        results = compute_dpcm2(pd.DataFrame(datasets[0]['data']),
+                                pd.DataFrame(datasets[1]['data']),
+                                name1=datasets[0]['filename'],
+                                name2=datasets[1]['filename'])
+    except Exception as e:
+        return (
+            dbc.Alert(f"Error during DPCM2 computation: {str(e)}", color="danger"),
+            None
+        )
+
+    return (
+        html.Div([
+            dbc.Alert(
+                f"DPCM2 Score ({datasets[0]['filename']} vs {datasets[1]['filename']}): {results['dpcm2_final_score']:.2f}%",
+                color="success"
+            ),
+            dbc.Alert(
+                "Interpretation: A value close to 100% means the two datasets show very high similarity "
+                "in Type 2 Diabetes prevalence patterns. Lower values indicate greater divergence.",
+                color="info"
+            )
+        ]),
+        {
+            "title": "DPCM2 Results",
+            "dpcm2_final_score": float(results['dpcm2_final_score'])
+        }
+    )
+
 # Final Score callback End ------
 # Attribute Scores callback Start ------
 @app.callback(
-    Output("dpcm2-attributes", "children"),
+    [Output("dpcm2-attributes", "children"),
+    Output("store-dpcm2-attributes", "data", allow_duplicate=True)],
     Input("show-attributes", "n_clicks"),
     State("stored-data", "data"),
     prevent_initial_call=True
 )
 def show_attribute_scores(n_clicks, datasets):
     if not datasets or len(datasets) < 2:
-        return dbc.Alert("Please upload 2 datasets before running DPCM2.", color="warning")
-
-    df1 = pd.DataFrame(datasets[0]["data"])
-    df2 = pd.DataFrame(datasets[1]["data"])
-    fname1 = datasets[0]["filename"]
-    fname2 = datasets[1]["filename"]
+        return (
+            dbc.Alert("Please upload 2 datasets before running DPCM2.", color="warning"),
+            None
+        )
 
     try:
-        results = compute_dpcm2(df1, df2, name1=fname1, name2=fname2)
+        results = compute_dpcm2(pd.DataFrame(datasets[0]["data"]),
+                                pd.DataFrame(datasets[1]["data"]),
+                                name1=datasets[0]["filename"],
+                                name2=datasets[1]["filename"])
     except Exception as e:
-        return dbc.Alert(f"Error during DPCM2 computation: {str(e)}", color="danger")
+        return (
+            dbc.Alert(f"Error during DPCM2 computation: {str(e)}", color="danger"),
+            None
+        )
 
     scores = results["attribute_scores"]
-
-    # Format as a simple table
     table = dbc.Table.from_dataframe(
         pd.DataFrame({
             "Attribute": list(scores.keys()),
@@ -341,25 +380,40 @@ def show_attribute_scores(n_clicks, datasets):
         striped=True, bordered=True, hover=True
     )
 
-    return html.Div([
-        html.H6("Per‑attribute similarity breakdown"),
-        table
-    ])
+    return (
+        html.Div([
+            html.H6("Per-attribute similarity breakdown"),
+            table
+        ]),
+        {
+            "title": "DPCM2 Attribute Breakdown",
+            "attributes": {k: float(v) for k, v in scores.items()}
+        }
+    )
+
 # Attribute Scores callback End ------
 # DPCM2 Tab Function End ------------
 
 # Resemblance Tab Callback Start -------
 @app.callback(
-    Output("resemblance-results", "children"),
+    [Output("resemblance-results", "children"),
+    Output("store-resemblance-results", "data")],
     [Input("run-js", "n_clicks"),
     Input("run-ks", "n_clicks"),
     Input("run-wasserstein", "n_clicks")],
     State("stored-data", "data"),
+    State("store-resemblance-results", "data"),
     prevent_initial_call=True
 )
-def run_resemblance(js_click, ks_click, w_click, datasets):
+def run_resemblance(js_click, ks_click, w_click, datasets, previous_results):
+
     if not datasets or len(datasets) < 2:
-        return dbc.Alert("Please upload 2 datasets before running resemblance tests.", color="warning")
+        return (
+            dbc.Alert("Please upload 2 datasets before running resemblance tests.", color="warning"),
+            previous_results
+        )
+
+    previous_results = previous_results or {"title": "Resemblance Analysis"}
 
     df1 = pd.DataFrame(datasets[0]["data"])
     df2 = pd.DataFrame(datasets[1]["data"])
@@ -367,72 +421,89 @@ def run_resemblance(js_click, ks_click, w_click, datasets):
 
     results = compute_resemblance(df1, df2, name1=fname1, name2=fname2)
 
-    # Identify which button triggered
     ctx = dash.callback_context
-    if not ctx.triggered:
-        return dbc.Alert("No test selected.", color="warning")
     button_id = ctx.triggered[0]["prop_id"].split(".")[0]
 
     # --- JS Similarity ---
     if button_id == "run-js":
+
         scores = {col: metrics["JS Divergence"] for col, metrics in results["results"].items()}
         overall_js = results["overall"]["JS Divergence"]
 
-        description = "JS Similarity: Measures how similar the overall shape of the data is. Lower values mean the datasets look more alike."
-        y_label = "JS Divergence (lower = more similar)"
-        title = f"JS Similarity ({fname1} vs {fname2})"
+        fig = px.bar(
+            x=list(scores.keys()),
+            y=list(scores.values()),
+            labels={"x": "Attribute", "y": "JS Divergence (lower = more similar)"},
+            title=f"JS Similarity ({fname1} vs {fname2})"
+        )
 
-        fig = px.bar(x=list(scores.keys()), y=list(scores.values()),
-                    labels={"x":"Attribute", "y":y_label}, title=title)
+        previous_results["js"] = float(overall_js)
 
-        return html.Div([
-            dbc.Alert(description, color="info"),
-            dcc.Graph(figure=fig),
-            html.H6(f"Overall JS Divergence: {overall_js:.3f} (lower = more similar)")
-        ])
+        return (
+            html.Div([
+                dbc.Alert(
+                    "Jensen-Shannon Similarity measures how similar the distribution shapes (how spread the values) are.",
+                    color="info"
+                ),
+                html.P(f"Overall JS Divergence: {overall_js:.4f}", style={"fontWeight": "bold"}),
+                dcc.Graph(figure=fig)
+            ]),
+            previous_results
+        )
 
     # --- KS Comparison ---
     elif button_id == "run-ks":
-        d_scores = {col: metrics["KS D-Statistic"] for col, metrics in results["results"].items()}
+
+        scores = {col: metrics["KS D-Statistic"] for col, metrics in results["results"].items()}
         overall_ks = results["overall"]["KS D-Statistic"]
 
-        description = (
-            "KS Comparison: The Kolmogorov–Smirnov D-statistic measures the maximum difference between "
-            "the two distributions. Lower values mean the datasets resemble each other more closely."
-        )
-
         fig = px.bar(
-            x=list(d_scores.keys()),
-            y=list(d_scores.values()),
+            x=list(scores.keys()),
+            y=list(scores.values()),
             labels={"x": "Attribute", "y": "KS D-Statistic (lower = more similar)"},
             title=f"KS Comparison ({fname1} vs {fname2})"
         )
 
-        return html.Div([
-            dbc.Alert(description, color="info"),
-            dcc.Graph(figure=fig),
-            html.H6(f"Overall KS D-Statistic: {overall_ks:.3f} (lower = more similar)")
-        ])
+        previous_results["ks"] = float(overall_ks)
+
+        return (
+            html.Div([
+                dbc.Alert(
+                    "Kolmogorov-Smirnov Statistic measures the maximum distribution difference (higher bar means higher mismatch/disagreement).",
+                    color="info"
+                ),
+                html.P(f"Overall KS D-Statistic: {overall_ks:.4f}", style={"fontWeight": "bold"}),
+                dcc.Graph(figure=fig)
+            ]),
+            previous_results
+        )
 
     # --- Wasserstein Distance ---
     elif button_id == "run-wasserstein":
+
         scores = {col: metrics["Wasserstein"] for col, metrics in results["results"].items()}
         overall_w = results["overall"]["Wasserstein"]
 
-        description = ("Wasserstein Distance: Measures how far values would need to shift to make the datasets match. "
-                    "Lower values mean closer resemblance. Note: values depend on the scale of the variable "
-                    "(e.g., years vs. blood pressure), so comparisons across attributes should be interpreted cautiously.")
-        y_label = "Wasserstein Distance (lower = more similar)"
-        title = f"Wasserstein Distance ({fname1} vs {fname2})"
+        fig = px.bar(
+            x=list(scores.keys()),
+            y=list(scores.values()),
+            labels={"x": "Attribute", "y": "Wasserstein Distance (lower = more similar)"},
+            title=f"Wasserstein Distance ({fname1} vs {fname2})"
+        )
 
-        fig = px.bar(x=list(scores.keys()), y=list(scores.values()),
-                    labels={"x":"Attribute", "y":y_label}, title=title)
+        previous_results["wasserstein"] = float(overall_w)
 
-        return html.Div([
-            dbc.Alert(description, color="info"),
-            dcc.Graph(figure=fig),
-            html.H6(f"Overall Wasserstein Distance: {overall_w:.3f} (lower = more similar)")
-        ])
+        return (
+            html.Div([
+                dbc.Alert(
+                    "Wasserstein Distance measures how much distributions must shift to match (higher bar means more effort needed to make the two match).",
+                    color="info"
+                ),
+                html.P(f"Overall Wasserstein Distance: {overall_w:.4f}", style={"fontWeight": "bold"}),
+                dcc.Graph(figure=fig)
+            ]),
+            previous_results
+        )
 # Resemblance Tab Callback End --------
 
 # Utility Tab Callback Start -------
@@ -464,16 +535,23 @@ def assign_datasets(assign12, assign21, datasets):
 # Assignment Callback End ------
 
 @app.callback(
-    Output("utility-results", "children"),
+    [Output("utility-results", "children"),
+    Output("store-utility-results", "data")],
     [Input("run-tstr", "n_clicks"),
     Input("run-trtr", "n_clicks")],
     State("stored-data", "data"),
     State("store-assignments", "data"),
+    State("store-utility-results", "data"),   # <-- add previous results
     prevent_initial_call=True
 )
-def run_utility(tstr_click, trtr_click, datasets, assignments):
+def run_utility(tstr_click, trtr_click, datasets, assignments, previous_results):
     if not datasets or len(datasets) < 2 or not assignments:
-        return dbc.Alert("Please upload 2 datasets and assign Synthetic/Real first.", color="warning")
+        return (
+            dbc.Alert("Please upload 2 datasets and assign Synthetic/Real first.", color="warning"),
+            previous_results
+        )
+
+    previous_results = previous_results or {}  # start with empty dict if none
 
     synth_idx, real_idx = assignments["synthetic"], assignments["real"]
     synth_df = pd.DataFrame(datasets[synth_idx]["data"])
@@ -484,94 +562,201 @@ def run_utility(tstr_click, trtr_click, datasets, assignments):
 
     if button_id == "run-tstr":
         metrics = run_tstr(synth_df, real_df)
-        description = ("TSTR: Train on synthetic data, test on real data. "
-                    "This checks whether synthetic data can train a model "
-                    "that generalizes well to real-world cases.")
+        description = "TSTR: Train on synthetic data, test on real data. If results are similar to TRTR, then the synthetic data is realistic enough to train models without losing performance."
+        previous_results["tstr"] = metrics
     else:
         metrics = run_trtr(real_df)
-        description = ("TRTR: Train and test on real data. "
-                    "This is the baseline performance using only real data.")
+        description = "TRTR: Train and test on real data. This is the baseline, compare this to TSTR"
+        previous_results["trtr"] = metrics
 
-    # Convert metrics to DataFrame
     df_metrics = pd.DataFrame(metrics.items(), columns=["Metric", "Score"])
-
-    # Bar chart visualization
     fig = px.bar(df_metrics, x="Metric", y="Score",
                 title="Utility Test Metrics",
                 labels={"Score": "Value"},
                 text=df_metrics["Score"].round(3))
     fig.update_traces(textposition="outside")
 
-    # Plain-language descriptions for each metric
-    metric_explanations = html.Ul([
-        html.Li("Accuracy: Overall correctness — proportion of all predictions that were right."),
-        html.Li("AUC: Ability to distinguish between positive and negative cases (higher = better discrimination)."),
-        html.Li("Recall: Sensitivity — how well the model detects actual positives."),
-        html.Li("Precision: How many predicted positives were truly positive."),
-        html.Li("F1-Score: Balance between precision and recall (harmonic mean).")
-    ])
+    return (
+        html.Div([
+            dbc.Alert(description, color="info"),
+            dcc.Graph(figure=fig),
+            html.H5("Metric Explanations"),
+            html.Ul([
+                html.Li("Accuracy: Overall correctness. Note that class imbalance may make this misleading."),
+                html.Li("AUC: Ability to distinguish cases (positive vs. negative)."),
+                html.Li("Recall: Ability to detect actual positive cases."),
+                html.Li("Precision: True positives among predicted positives."),
+                html.Li("F1-Score: Balance between precision and recall, provides an overall positive class measure.")
+            ])
+        ]),
+        previous_results   # <-- merged results returned
+    )
 
-    return html.Div([
-        dbc.Alert(description, color="info"),
-        dcc.Graph(figure=fig),
-        html.H5("Metric Explanations"),
-        metric_explanations
-    ])
 # Utility Tab Callback End --------
 
-# XAI Tab Callback Start --------
+# XAI Upload Callback --------
 @app.callback(
-    Output("xai-results", "children"),
-    Input("run-shap", "n_clicks"),
-    State("stored-model", "data"),
+    [Output("stored-model", "data"),
+    Output("xai-results", "children")],
+    Input("upload-model", "contents"),
+    State("upload-model", "filename"),
     prevent_initial_call=True
 )
-
 def store_uploaded_model(contents, filename):
     if contents is None:
-        return None
-    
-    import base64 
-    content_type, content_string = contents.split(',') 
-    decoded = base64.b64decode(content_string) 
-    
-    # Store filename and raw content (encoded again for safe transport) return { "filename": filename, "content": base64.b64encode(decoded).decode("utf-8") }
-    return{
+        return (
+            dbc.Alert("No file uploaded.", color="warning"),
+            None
+        )
+
+    import base64
+    content_type, content_string = contents.split(',')
+    decoded = base64.b64decode(content_string)
+
+    stored = {
         "filename": filename,
         "content": base64.b64encode(decoded).decode("utf-8")
     }
 
+    # Confirmation message
+    return stored, dbc.Alert(f"Model '{filename}' uploaded successfully.", color="info")
+
+# XAI Tab Start -------
+# Upload Callback
+@app.callback(
+    Output("stored-model", "data", allow_duplicate=True),
+    Output("upload-status", "children"),
+    Input("upload-model", "contents"),
+    State("upload-model", "filename"),
+    prevent_initial_call=True
+)
+def store_uploaded_model(contents, filename):
+    if contents is None:
+        return None, dbc.Alert("No file uploaded.", color="warning")
+
+    content_type, content_string = contents.split(',')
+    stored = {
+        "filename": filename,
+        "content": content_string
+    }
+    
+    return stored, dbc.Alert(f"Model '{filename}' uploaded successfully.", color="info")
+
+# Run SHAP Callback
+@app.callback(
+    [Output("xai-results", "children", allow_duplicate=True),
+    Output("store-xai-results", "data")],
+    Input("run-shap", "n_clicks"),
+    State("stored-model", "data"),
+    prevent_initial_call=True
+)
 def run_shap_explanation(n_clicks, model_data):
     if not model_data:
-        return dbc.Alert("Please upload a .pkl model file first.", color="warning")
+        return (
+            dbc.Alert("Please upload a .pkl model file first.", color="warning"),
+            None
+        )
+    
+    # Decode and load pipeline
+    pkl_bytes = base64.b64decode(model_data["content"])
+    model = load_model_from_pkl(pkl_bytes)
 
-    # Load model
-    model = load_model_from_pkl(base64.b64decode(model_data["content"]))
+    num_features = model.named_steps["preprocess"].transformers_[0][2]
+    cat_features = model.named_steps["preprocess"].transformers_[1][2]
+    expected_columns = list(num_features) + list(cat_features)
 
-    # Dummy sample data (replace with real test data if available)
-    X_sample = pd.DataFrame(np.random.rand(50, model.n_features_in_),
-                            columns=[f"Feature {i}" for i in range(model.n_features_in_)])
+    X_sample = pd.DataFrame(np.random.rand(50, len(expected_columns)), columns=expected_columns)
+    if "gender" in cat_features:
+        X_sample["gender"] = np.random.choice(["1", "0"], size=50)
 
     plots = generate_shap_explanations(model, X_sample)
 
-    # Display plots with captions
-    return html.Div([
-        dbc.Alert("SHAP explanations generated successfully.", color="success"),
+    dependence_images = []
+    image_list = []   # collect base64 images for PDF
 
-        html.H5("1. Global Importance Pattern"),
-        html.P("This bar chart shows which features are most influential overall in the model’s predictions."),
-        html.Img(src="data:image/png;base64," + plots["global_importance"], style={"width":"80%"}),
+    # Add global importance plot
+    image_list.append(plots["global_importance"])
 
-        html.H5("2. Dependence Plot"),
-        html.P("This scatter plot shows how a single feature’s values relate to its SHAP contribution, revealing feature patterns."),
-        html.Img(src="data:image/png;base64," + plots["dependence"], style={"width":"80%"}),
+    for key, img in plots.items():
+        if key.startswith("dependence_"):
+            feature_name = key.replace("dependence_", "")
+            dependence_images.append(html.Div([
+                html.H5(f"Dependence Plot: {feature_name}"),
+                html.Img(src="data:image/png;base64," + img, style={"width": "80%"})
+            ]))
+            image_list.append(img)   # add dependence plot image
 
-        html.H5("3. Force Plot"),
-        html.P("This visualization explains one individual prediction, showing how each feature pushed the prediction higher or lower."),
-        html.Img(src="data:image/png;base64," + plots["force"], style={"width":"80%"})
-    ])
-# XAI Tab Callback End -------
+    return (
+        html.Div([
+            dbc.Alert("SHAP explanations generated successfully.", color="success"),
+            html.H5("1. Global Importance Pattern"),
+            html.Img(src="data:image/png;base64," + plots["global_importance"], style={"width": "80%"}),
+            html.H5("2. Dependence Plots"),
+            html.Div(dependence_images)
+        ]),
+        {
+            "title": "XAI Results",
+            "summary": "SHAP explanations generated successfully.",
+            "images": image_list   # <-- stored for PDF
+        }
+    )
 
+# XAI Tab End -------
+
+# PDF Callback Start -------
+import base64
+
+@app.callback(
+    Output("download-pdf", "data"),
+    Input("export-button", "n_clicks"),
+    State("store-dpcm2-results", "data"),
+    State("store-dpcm2-attributes", "data"),
+    State("store-resemblance-results", "data"),
+    State("store-utility-results", "data"),
+    State("store-xai-results", "data"),
+    State("stored-data","data"),
+    State("store-assignments", "data"),
+    State("stored-model", "data"),
+    prevent_initial_call=True
+)
+def export_pdf(n_clicks, dpcm2_results, dpcm2_attributes, resemblance, utility, xai, datasets, assignments, model_files):
+    # Merge DPCM2 results
+    dpcm2_data = {}
+    if dpcm2_results:
+        dpcm2_data.update(dpcm2_results)
+    if dpcm2_attributes:
+        dpcm2_data.update(dpcm2_attributes)
+
+    # Merge Utility results
+    utility_data = {}
+    if utility:
+        if "tstr" in utility:
+            utility_data["tstr"] = utility["tstr"]
+        if "trtr" in utility:
+            utility_data["trtr"] = utility["trtr"]
+
+    # Create PDF report
+    pdf_bytes = create_pdf_report(
+        dpcm2=dpcm2_data,
+        resemblance=resemblance,
+        utility=utility_data,
+        xai=xai,
+        datasets=datasets,
+        assignments=assignments,
+        models=model_files
+    )
+
+    # Encode to base64 for Dash
+    pdf_base64 = base64.b64encode(pdf_bytes).decode("utf-8")
+
+    return {
+        "content": pdf_base64,
+        "filename": "thesis_evaluation_report.pdf",
+        "type": "application/pdf",
+        "base64": True
+    }
+
+#PDF Callback End -----
 
 # ---------------------------------------------------------------------
 # Main

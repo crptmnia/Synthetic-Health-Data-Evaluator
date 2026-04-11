@@ -25,7 +25,7 @@ def compute_dpcm2(df1: pd.DataFrame, df2: pd.DataFrame, name1: str = "Dataset1",
     """
 # Hardcoded column names as this measurement is specific for this study
     required_cols = ["age", "bmi", "systolic_bp", "diastolic_bp",
-                     "family_diabetes", "family_hypertension", "diabetic"]
+                    "family_diabetes", "family_hypertension", "diabetic"]
     for col in required_cols:
         if col not in df1.columns or col not in df2.columns:
             raise ValueError(f"Missing required column: {col}")
