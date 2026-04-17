@@ -65,126 +65,137 @@ app.title = "Synthetic Health Data Evaluation"
 # Layout components
 # ---------------------------------------------------------------------
 
-# moved up so it is always present
-export_button = dbc.Button(
-    "Export Results",
-    id="export-button",
-    color="warning",
-    className="mt-3"
-)
 
 navbar = dbc.NavbarSimple(
     brand="Synthetic Health Data Evaluation",
     color="primary",
     dark=True,
     sticky="top",
-    children=[export_button, dcc.Download(id="download-pdf")]
+    children=[
+        html.Div(id="export-button-container"),  # placeholder
+        dcc.Download(id="download-pdf")
+    ]
 )
 
-tabs = dbc.Tabs(
-    [
-        # Load Data Tab
-        dbc.Tab(
-            label="Load Data",
-            tab_id="tab-load",
-            children=[
-                html.H4("Load Data Tab"),
-                html.P("Upload a dataset and preview the first few rows. Select multiple (via Ctrl) for dataset comparisons.", style={'fontStyle': 'italic'}),
-                html.P("Please note that the tests expect all values to be numerical and not categorical."),
-                html.P("Supported formats: CSV, Excel (.xls/.xlsx)", style={'fontStyle': 'italic'}),
 
-                dcc.Upload(
-                    id='upload-data',
-                    children=dbc.Button("Upload Dataset/s", color="primary"),
-                    multiple=True
-                ),
+# Welcome Tab defined globally
+welcome_tab = dbc.Tab(
+    label="Welcome",
+    tab_id="tab-welcome",
+    children=[
+        html.H3("Synthetic Health Data Evaluator"),
+        html.P("This dashboard provides an interactive framework for evaluating synthetic healthcare datasets. It integrates domain-specific checks, resemblance metrics, utility tests, and explainable AI visualizations."),
+        html.P("To begin, please upload datasets in the Load Data tab. Clicking the Refresh button unlocks the evaluation modules (DPCM2, Resemblance, Utility, and XAI)."),
+    ]
+)
 
-                html.Br(),
-                html.Div(id='preview-tables'),
-                html.Div(id='uploaded-filenames', style={'marginTop': '10px'}),
+# Load Data Tab
+load_data_tab = dbc.Tab(
+    label="Load Data",
+    tab_id="tab-load",
+    children=[
+        html.H4("Load Data Tab"),
+        html.P("Upload a dataset and preview the first few rows. Select multiple (via Ctrl) for dataset comparisons.", style={'fontStyle': 'italic'}),
+        html.P("Please note that the tests expect all values to be numerical and not categorical."),
+        html.P("Caution: Clicking Refresh after all tabs are unlocked starts an entirely new session (datasets are deleted)"),
+        html.P("Supported formats: CSV, Excel (.xls/.xlsx)", style={'fontStyle': 'italic'}),
 
-                # Hidden store to keep uploaded data for other tabs
-                dcc.Store(id='stored-data')
-            ]
+        dcc.Upload(
+            id='upload-data',
+            children=dbc.Button("Upload Dataset/s", color="primary"),
+            multiple=True
         ),
-        
+        dbc.Button("Refresh", id="unlock-tabs", color="primary", className="mt-3"),
 
-        # DPCM2 Tab
-        dbc.Tab(
-            label="DPCM2",
-            tab_id="tab-dpcm2",
-            children=[
-                html.H4("DPCM2 Tab"),
-                html.P("Type 2 Diabetes Prevalence Consistency Measurement tests the prevalence of known characteristics of having type 2 diabetes between the original and synthetic dataset."),
-                html.P("It is a supporting measure to check if the synthetic data captures important relationships in the original data, but it is not a comprehensive evaluation on its own."),
-                html.P("Must upload one synthetic and one dataset for comparison."),
-                dbc.Button("Run DPCM2 Evaluation", id='run-dpcm2', color="success", className="mt-3"),
-                dbc.Button("Per attribute similarity", id='show-attributes', color="info", className="mt-3", style={"marginLeft": "10px"}),
-                html.Div(id='dpcm2-results', style={'marginTop': '20px'}),
-                html.Div(id="dpcm2-attributes", style={"marginTop": "20px"})
-            ]
-        ),
 
-        # Resemblance Tab
-        dbc.Tab(
-            label="Resemblance",
-            tab_id="tab-resemblance",
-            children=[
-                html.H4("Resemblance Tab"),
-                html.P("This module evaluates how similar two groups of data are. In simple terms, it checks whether two patient populations or clinical variables “look alike” or behave differently."),
-                html.P("It compares the overall pattern of values rather than individual patients. For example, it can assess whether age distributions, laboratory results, or risk scores from two hospitals follow similar trends or show meaningful differences."),
-                html.P("Must upload one synthetic and one dataset for comparison"),
-                dbc.Button("JS Similarity", id="run-js", color="primary", className="m-2"),
-                dbc.Button("KS Comparison", id="run-ks", color="secondary", className="m-2"),
-                dbc.Button("Wasserstein Distance", id="run-wasserstein", color="info", className="m-2"),
-                html.Div(id="resemblance-results", style={"marginTop": "20px"})
-            ]
-        ),
+        html.Br(),
+        html.Div(id='preview-tables'),
+        html.Div(id='uploaded-filenames', style={'marginTop': '10px'}),
+    ]
+)
 
-        # Utility Tab
-        dbc.Tab(
-            label="Utility",
-            tab_id="tab-utility",
-            children=[
-                html.H4("Utility Tab"),
-                html.P("Evaluate how well synthetic data works in predictions."),
+# Initial Tabs container uses welcome_tab + load_data_tab
+tabs_container = html.Div(
+    id="tabs-container",
+    children=dbc.Tabs([welcome_tab, load_data_tab])
+)
 
-                # Step 1: Assign datasets
-                html.H5("Step 1: Assign Synthetic and Real"),
-                html.Div([
-                dbc.Button("Assign Dataset 1 as Synthetic, Dataset 2 as Real", id="assign-1-2", color="primary", className="me-2"),
-                dbc.Button("Assign Dataset 2 as Synthetic, Dataset 1 as Real", id="assign-2-1", color="secondary")
-                ]),
-            dcc.Store(id="store-assignments"),
-            # Assignment indicator
-            html.Div(id="assignment-indicator", className="mt-2"),
+# DPCM2 Tab
+dpcm2_tab = dbc.Tab(
+    label="DPCM2",
+    tab_id="tab-dpcm2",
+    children=[
+        html.H4("DPCM2 Tab"),
+        html.P("Type 2 Diabetes Prevalence Consistency Measurement tests the prevalence of known characteristics of having type 2 diabetes between the original and synthetic dataset."),
+        html.P("It is a supporting measure to check if the synthetic data captures important relationships in the original data, but it is not a comprehensive evaluation on its own."),
+        html.P("Must upload one synthetic and one dataset for comparison."),
+        dbc.Button("Run DPCM2 Evaluation", id='run-dpcm2', color="success", className="mt-3"),
+        dbc.Button("Per attribute similarity", id='show-attributes', color="info", className="mt-3", style={"marginLeft": "10px"}),
+        html.Div(id='dpcm2-results', style={'marginTop': '20px'}),
+        html.Div(id="dpcm2-attributes", style={"marginTop": "20px"})
+    ]
+)
 
-            html.Hr(),
+# Resemblance Tab
+resemblance_tab = dbc.Tab(
+    label="Resemblance",
+    tab_id="tab-resemblance",
+    children=[
+        html.H4("Resemblance Tab"),
+        html.P("This module evaluates how similar two groups of data are. In simple terms, it checks whether two patient populations or clinical variables “look alike” or behave differently."),
+        html.P("It compares the overall pattern of values rather than individual patients. For example, it can assess whether age distributions, laboratory results, or risk scores from two hospitals follow similar trends or show meaningful differences."),
+        html.P("Must upload one synthetic and one dataset for comparison"),
+        dbc.Button("JS Similarity", id="run-js", color="primary", className="m-2"),
+        dbc.Button("KS Comparison", id="run-ks", color="secondary", className="m-2"),
+        dbc.Button("Wasserstein Distance", id="run-wasserstein", color="info", className="m-2"),
+        html.Div(id="resemblance-results", style={"marginTop": "20px"})
+    ]
+)
 
-            # Step 2: Run tests
-            html.H5("Step 2: Run Utility Tests"),
-            html.Div([
-                dbc.Button("Run TSTR (Train Synthetic, Test Real)", id="run-tstr", color="success", className="me-2"),
-                dbc.Button("Run TRTR (Train Real, Test Real)", id="run-trtr", color="info")
-            ]),
+# Utility Tab
+utility_tab = dbc.Tab(
+    label="Utility",
+    tab_id="tab-utility",
+    children=[
+        html.H4("Utility Tab"),
+        html.P("Evaluate how well synthetic data works in predictions."),
 
-            html.Hr(),
+        # Step 1: Assign datasets
+        html.H5("Step 1: Assign Synthetic and Real"),
+        html.Div([
+        dbc.Button("Assign Dataset 1 as Synthetic, Dataset 2 as Real", id="assign-1-2", color="primary", className="me-2"),
+        dbc.Button("Assign Dataset 2 as Synthetic, Dataset 1 as Real", id="assign-2-1", color="secondary")
+        ]),
+    # Removed: dcc.Store(id="store-assignments"),
+    # Assignment indicator
+    html.Div(id="assignment-indicator", className="mt-2"),
 
-            # Results
-            html.Div(id="utility-results")
-            ]
-        ),
+    html.Hr(),
 
-        # XAI Tab
-        dbc.Tab(
-            label="XAI (SHAP)",
-            tab_id="tab-xai",
-            children=[
-                html.H4("Explainable AI (XAI) Tab"),
-                html.P("Upload trained model files (.pkl) and generate SHAP explanations."),
-                html.P("SHAP tells us how each feature contributed to the predictions. Higher values means they contribute more towards the prediction."),
-                html.P("Global Importance Pattern: X-axis are the SHAP values, which represent the impact of each feature on prediction, Y-axis: the list of features, with varying colors per dot which shows the dots value, Dots: each dot is one patient/sample"),
-                html.P("Dependence plots: X-axis = feature values, Y-axis: SHAP values (impact on prediction)."),
+    # Step 2: Run tests
+    html.H5("Step 2: Run Utility Tests"),
+    html.Div([
+        dbc.Button("Run TSTR (Train Synthetic, Test Real)", id="run-tstr", color="success", className="me-2"),
+        dbc.Button("Run TRTR (Train Real, Test Real)", id="run-trtr", color="info")
+    ]),
+
+    html.Hr(),
+
+    # Results
+    html.Div(id="utility-results")
+    ]
+)
+
+# XAI Tab
+xai_tab = dbc.Tab(
+    label="XAI (SHAP)",
+    tab_id="tab-xai",
+    children=[
+        html.H4("Explainable AI (XAI) Tab"),
+        html.P("Upload trained model files (.pkl) and generate SHAP explanations."),
+        html.P("SHAP tells us how each feature contributed..."),
+        html.P("Global Importance Pattern: ..."),
+        html.P("Dependence plots: ..."),
 
         dcc.Upload(
             id="upload-model",
@@ -203,44 +214,91 @@ tabs = dbc.Tabs(
             },
         ),
 
-            dcc.Store(id="stored-model"),
+        # Removed: dcc.Store(id="stored-model"),
+        html.Div(id="upload-status"),
+        html.Hr(),
 
-            html.Div(id="upload-status"),
-
-            html.Hr(),
-
-            dbc.Button(
-                "Run SHAP Explanation",
-                id="run-shap",
-                color="primary",
-                n_clicks=0
-            ),
-
-                html.Div(id="xai-results"),
-            ]
+        dbc.Button(
+            "Run SHAP Explanation",
+            id="run-shap",
+            color="primary",
+            n_clicks=0
         ),
+
+        html.Div(id="xai-results"),
     ]
 )
 
 
+# When Refresh button is clicked
+@app.callback(
+    [Output("tabs-unlocked", "data"),
+    Output("stored-data", "data", allow_duplicate=True)],   # <-- clear datasets too
+    Input("unlock-tabs", "n_clicks"),
+    prevent_initial_call=True
+)
+def unlock_tabs(n_clicks):
+    if n_clicks:
+        # Unlock tabs and reset stored datasets
+        return True, []
+    return False, []
 
+
+# Tab Unlocker
+@app.callback(
+    Output("tabs-container", "children"),
+    Input("tabs-unlocked", "data")
+)
+def update_tabs(unlocked):
+    if not unlocked:
+        return dbc.Tabs(
+            [welcome_tab, load_data_tab],
+            active_tab="tab-welcome"   # <-- default selection
+        )
+    else:
+        return dbc.Tabs(
+            [load_data_tab, dpcm2_tab, resemblance_tab, utility_tab, xai_tab],
+            active_tab="tab-load"      # <-- default selection after unlock
+        )
+
+
+#Layout
 app.layout = dbc.Container(
     [
         navbar,
         html.Br(),
-        tabs,
+        tabs_container,
 
         # Store the results
+        dcc.Store(id='stored-data', data = []), # moved here
+        dcc.Store(id="tabs-unlocked", data=False),
         dcc.Store(id="store-dpcm2-results"),
         dcc.Store(id="store-dpcm2-attributes"),
         dcc.Store(id="store-resemblance-results"),
         dcc.Store(id="store-utility-results"),
         dcc.Store(id="store-xai-results"),
+        dcc.Store(id="store-assignments"),
+        dcc.Store(id="stored-model"),
+        # Modal Callback for Error in Export Button
+        dbc.Modal(
+            [
+                dbc.ModalHeader("Export Error"),
+                dbc.ModalBody("No evaluation results found. Please run at least one test before exporting."),
+                dbc.ModalFooter(
+                    dbc.Button("Close", id="close-error", className="ms-auto", n_clicks=0)
+                ),
+            ],
+            id="error-modal",
+            is_open=False,
+        ),
 
+        # PDF error placeholder
+        html.Div(id="export-error"),
         html.Hr(),
     ],
     fluid=True
 )
+
 # Load Data Tab Function Start ----------
 @app.callback(
     [Output('stored-data', 'data'),
@@ -252,6 +310,15 @@ app.layout = dbc.Container(
 def handle_upload(contents, filenames):
     if contents is None:
         raise PreventUpdate
+
+    # Enforce max of 2 files
+    if len(filenames) > 2:
+        return (
+            [],  # no datasets stored
+            [],  # no previews shown
+            dbc.Alert("Error: Maximum of 2 files allowed.",
+                    color="danger", dismissable=True)
+        )
 
     datasets = []
     previews = []
@@ -594,38 +661,11 @@ def run_utility(tstr_click, trtr_click, datasets, assignments, previous_results)
 
 # Utility Tab Callback End --------
 
-# XAI Upload Callback --------
-@app.callback(
-    [Output("stored-model", "data"),
-    Output("xai-results", "children")],
-    Input("upload-model", "contents"),
-    State("upload-model", "filename"),
-    prevent_initial_call=True
-)
-def store_uploaded_model(contents, filename):
-    if contents is None:
-        return (
-            dbc.Alert("No file uploaded.", color="warning"),
-            None
-        )
-
-    import base64
-    content_type, content_string = contents.split(',')
-    decoded = base64.b64decode(content_string)
-
-    stored = {
-        "filename": filename,
-        "content": base64.b64encode(decoded).decode("utf-8")
-    }
-
-    # Confirmation message
-    return stored, dbc.Alert(f"Model '{filename}' uploaded successfully.", color="info")
-
 # XAI Tab Start -------
 # Upload Callback
 @app.callback(
     Output("stored-model", "data", allow_duplicate=True),
-    Output("upload-status", "children"),
+    Output("upload-status", "children",),
     Input("upload-model", "contents"),
     State("upload-model", "filename"),
     prevent_initial_call=True
@@ -707,7 +747,8 @@ def run_shap_explanation(n_clicks, model_data):
 import base64
 
 @app.callback(
-    Output("download-pdf", "data"),
+    [Output("download-pdf", "data"),
+    Output("error-modal", "is_open", allow_duplicate=True)],
     Input("export-button", "n_clicks"),
     State("store-dpcm2-results", "data"),
     State("store-dpcm2-attributes", "data"),
@@ -720,6 +761,16 @@ import base64
     prevent_initial_call=True
 )
 def export_pdf(n_clicks, dpcm2_results, dpcm2_attributes, resemblance, utility, xai, datasets, assignments, model_files):
+
+    # Ignore if button was just created (refresh) but not clicked
+    if not n_clicks or n_clicks == 0:
+        raise PreventUpdate
+
+    # --- Check if any results exist ---
+    if not (dpcm2_results or dpcm2_attributes or resemblance or utility or xai):
+        # No tests have been run yet → open modal, no file
+        return None, True
+
     # Merge DPCM2 results
     dpcm2_data = {}
     if dpcm2_results:
@@ -746,7 +797,6 @@ def export_pdf(n_clicks, dpcm2_results, dpcm2_attributes, resemblance, utility, 
         models=model_files
     )
 
-    # Encode to base64 for Dash
     pdf_base64 = base64.b64encode(pdf_bytes).decode("utf-8")
 
     return {
@@ -754,9 +804,37 @@ def export_pdf(n_clicks, dpcm2_results, dpcm2_attributes, resemblance, utility, 
         "filename": "thesis_evaluation_report.pdf",
         "type": "application/pdf",
         "base64": True
-    }
+    }, False
 
 #PDF Callback End -----
+
+# Modal Callback for Error in Export Button
+@app.callback(
+    Output("error-modal", "is_open", allow_duplicate=True),
+    Input("close-error", "n_clicks"),
+    State("error-modal", "is_open"),
+    prevent_initial_call=True
+)
+def close_modal(n_clicks, is_open):
+    if n_clicks:
+        return False
+    return is_open
+
+# PDF Button Appears after Refresh callback
+@app.callback(
+    Output("export-button-container", "children"),
+    Input("tabs-unlocked", "data")
+)
+def toggle_export_button(unlocked):
+    if unlocked:
+        return dbc.Button(
+            "Export Results",
+            id="export-button",
+            color="warning",
+            className="mt-3"
+        )
+    return None
+
 
 # ---------------------------------------------------------------------
 # Main
