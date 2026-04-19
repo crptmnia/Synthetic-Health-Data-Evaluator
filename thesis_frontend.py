@@ -128,7 +128,7 @@ dpcm2_tab = dbc.Tab(
         html.H4("DPCM2 Tab"),
         html.P("Type 2 Diabetes Prevalence Consistency Measurement tests the prevalence of known characteristics of having type 2 diabetes between the original and synthetic dataset."),
         html.P("It is a supporting measure to check if the synthetic data captures important relationships in the original data, but it is not a comprehensive evaluation on its own."),
-        html.P("Must upload one synthetic and one dataset for comparison."),
+        html.P("Must upload 2 datasets for comparison."),
         dbc.Button("Run DPCM2 Evaluation", id='run-dpcm2', color="success", className="mt-3"),
         dbc.Button("Per attribute similarity", id='show-attributes', color="info", className="mt-3", style={"marginLeft": "10px"}),
         html.Div(id='dpcm2-results', style={'marginTop': '20px'}),
@@ -144,13 +144,25 @@ resemblance_tab = dbc.Tab(
         html.H4("Resemblance Tab"),
         html.P("This module evaluates how similar two groups of data are. In simple terms, it checks whether two patient populations or clinical variables “look alike” or behave differently."),
         html.P("It compares the overall pattern of values rather than individual patients. For example, it can assess whether age distributions, laboratory results, or risk scores from two hospitals follow similar trends or show meaningful differences."),
-        html.P("Must upload one synthetic and one dataset for comparison"),
-        dbc.Button("JS Similarity", id="run-js", color="primary", className="m-2"),
-        dbc.Button("KS Comparison", id="run-ks", color="secondary", className="m-2"),
-        dbc.Button("Wasserstein Distance", id="run-wasserstein", color="info", className="m-2"),
-        html.Div(id="resemblance-results", style={"marginTop": "20px"})
+        html.P("Must upload 2 datasets for comparison"),
+
+        # Buttons + spinner beside them
+        html.Div(
+            [
+                dbc.Button("JS Similarity", id="run-js", color="primary", className="m-2"),
+                dbc.Button("KS Comparison", id="run-ks", color="secondary", className="m-2"),
+                dbc.Button("Wasserstein Distance", id="run-wasserstein", color="info", className="m-2"),
+                dcc.Loading(
+                    id="loading-resemblance",
+                    type="default",
+                    children=html.Div(id="resemblance-results", style={"minWidth": "40px", "minHeight": "40px"})
+                )
+            ],
+            style={"display": "flex", "alignItems": "center", "gap": "20px"}
+        )
     ]
 )
+
 
 # Utility Tab
 utility_tab = dbc.Tab(
@@ -158,33 +170,59 @@ utility_tab = dbc.Tab(
     tab_id="tab-utility",
     children=[
         html.H4("Utility Tab"),
-        html.P("Evaluate how well synthetic data works in predictions."),
+        html.P("Check how accurately synthetic data can be used for medical predictions compared to real data. This tests if models trained on synthetic data can perform well on real data, which is crucial for practical use."),
 
         # Step 1: Assign datasets
         html.H5("Step 1: Assign Synthetic and Real"),
         html.Div([
-        dbc.Button("Assign Dataset 1 as Synthetic, Dataset 2 as Real", id="assign-1-2", color="primary", className="me-2"),
-        dbc.Button("Assign Dataset 2 as Synthetic, Dataset 1 as Real", id="assign-2-1", color="secondary")
+            dbc.Button("Assign Dataset 1 as Synthetic, Dataset 2 as Real", id="assign-1-2", color="primary", className="me-2"),
+            dbc.Button("Assign Dataset 2 as Synthetic, Dataset 1 as Real", id="assign-2-1", color="secondary")
         ]),
-    # Removed: dcc.Store(id="store-assignments"),
-    # Assignment indicator
-    html.Div(id="assignment-indicator", className="mt-2"),
+        html.Div(id="assignment-indicator", className="mt-2"),
 
-    html.Hr(),
+        html.Hr(),
 
-    # Step 2: Run tests
-    html.H5("Step 2: Run Utility Tests"),
-    html.Div([
-        dbc.Button("Run TSTR (Train Synthetic, Test Real)", id="run-tstr", color="success", className="me-2"),
-        dbc.Button("Run TRTR (Train Real, Test Real)", id="run-trtr", color="info")
-    ]),
+        # Step 2: Run Utility Tests
+        html.H5("Step 2: Run Utility Tests"),
 
-    html.Hr(),
+        html.Div(
+            [
+                # Left button: TSTR
+                dbc.Button(
+                    "Run TSTR (Train Synthetic, Test Real)",
+                    id="run-tstr",
+                    color="success",
+                    className="me-2"
+                ),
 
-    # Results
-    html.Div(id="utility-results")
+                # Right button: TRTR + spinner beside it
+                html.Div(
+                    [
+                        dbc.Button(
+                            "Run TRTR (Train Real, Test Real)",
+                            id="run-trtr",
+                            color="info",
+                            className="me-2"
+                        ),
+                        dcc.Loading(
+                            id="loading-utility",
+                            type="default",
+                            children=html.Div(
+                                id="utility-results",
+                                style={"minWidth": "40px", "minHeight": "40px"}
+                            )
+                        )
+                    ],
+                    style={"display": "flex", "alignItems": "center", "gap": "10px"}
+                )
+            ],
+            style={"display": "flex", "alignItems": "center", "gap": "20px"}
+        )
     ]
 )
+
+
+
 
 # XAI Tab
 xai_tab = dbc.Tab(
@@ -193,9 +231,8 @@ xai_tab = dbc.Tab(
     children=[
         html.H4("Explainable AI (XAI) Tab"),
         html.P("Upload trained model files (.pkl) and generate SHAP explanations."),
-        html.P("SHAP tells us how each feature contributed..."),
-        html.P("Global Importance Pattern: ..."),
-        html.P("Dependence plots: ..."),
+        html.P("SHAP tells us how each feature contributed to the model's predictions, helping us understand if the model is making decisions based on meaningful patterns or just noise."),
+        html.P("Global Importance Pattern: Shows which features overall have the most influence on predictions. Dependence Plots: Show how specific feature values affect predictions, revealing if the model captures expected relationships (e.g., higher age increasing diabetes risk)."),
 
         dcc.Upload(
             id="upload-model",
@@ -218,14 +255,18 @@ xai_tab = dbc.Tab(
         html.Div(id="upload-status"),
         html.Hr(),
 
-        dbc.Button(
-            "Run SHAP Explanation",
-            id="run-shap",
-            color="primary",
-            n_clicks=0
+        # Button + Loading side by side
+        html.Div(
+            [
+                dbc.Button("Run SHAP", id="run-shap"),
+                dcc.Loading(
+                    id="loading-xai",
+                    type="default",
+                    children=html.Div(id="xai-results"),
+                )
+            ],
+            style={"display": "flex", "alignItems": "center", "gap": "20px"}
         ),
-
-        html.Div(id="xai-results"),
     ]
 )
 
