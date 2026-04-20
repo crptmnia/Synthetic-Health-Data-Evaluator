@@ -224,7 +224,7 @@ def create_pdf_report(
             elements.append(Spacer(1, 0.2 * inch))
 
             elements.append(Paragraph(
-                "Lower values indicate closer similarity between distributions.",
+                "Lower values indicate closer similarity between the datasets.",
                 styles["Italic"]
             ))
 

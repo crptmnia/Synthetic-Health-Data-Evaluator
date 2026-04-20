@@ -146,7 +146,6 @@ resemblance_tab = dbc.Tab(
         html.P("It compares the overall pattern of values rather than individual patients. For example, it can assess whether age distributions, laboratory results, or risk scores from two hospitals follow similar trends or show meaningful differences."),
         html.P("Must upload 2 datasets for comparison"),
 
-        # Buttons + spinner beside them
         html.Div(
             [
                 dbc.Button("JS Similarity", id="run-js", color="primary", className="m-2"),
@@ -162,6 +161,8 @@ resemblance_tab = dbc.Tab(
         )
     ]
 )
+
+
 
 
 # Utility Tab
@@ -251,7 +252,6 @@ xai_tab = dbc.Tab(
             },
         ),
 
-        # Removed: dcc.Store(id="stored-model"),
         html.Div(id="upload-status"),
         html.Hr(),
 
@@ -271,18 +271,29 @@ xai_tab = dbc.Tab(
 )
 
 
-# When Refresh button is clicked
+
+# When Refresh button is clicked, session memory should be gone
 @app.callback(
-    [Output("tabs-unlocked", "data"),
-    Output("stored-data", "data", allow_duplicate=True)],   # <-- clear datasets too
+    [
+        Output("tabs-unlocked", "data"),
+        Output("stored-data", "data", allow_duplicate=True),
+        Output("store-dpcm2-results", "data", allow_duplicate=True),
+        Output("store-dpcm2-attributes", "data", allow_duplicate=True),
+        Output("store-resemblance-results", "data", allow_duplicate=True),
+        Output("store-utility-results", "data", allow_duplicate=True),
+        Output("store-xai-results", "data", allow_duplicate=True),
+        Output("store-assignments", "data", allow_duplicate=True),
+        Output("stored-model", "data", allow_duplicate=True)
+    ],
     Input("unlock-tabs", "n_clicks"),
     prevent_initial_call=True
 )
 def unlock_tabs(n_clicks):
     if n_clicks:
-        # Unlock tabs and reset stored datasets
-        return True, []
-    return False, []
+        # Unlock tabs and reset everything
+        return True, [], {}, {}, {}, {}, {}, {}, {}
+    return False, [], {}, {}, {}, {}, {}, {}, {}
+
 
 
 # Tab Unlocker
@@ -502,7 +513,7 @@ def show_attribute_scores(n_clicks, datasets):
 # Attribute Scores callback End ------
 # DPCM2 Tab Function End ------------
 
-# Resemblance Tab Callback Start -------
+# Resemblance Tab Callback A: run test
 @app.callback(
     [Output("resemblance-results", "children"),
     Output("store-resemblance-results", "data")],
@@ -514,105 +525,148 @@ def show_attribute_scores(n_clicks, datasets):
     prevent_initial_call=True
 )
 def run_resemblance(js_click, ks_click, w_click, datasets, previous_results):
-
     if not datasets or len(datasets) < 2:
-        return (
-            dbc.Alert("Please upload 2 datasets before running resemblance tests.", color="warning"),
-            previous_results
-        )
+        return dbc.Alert("Please upload 2 datasets before running resemblance tests.", color="warning"), previous_results
 
     previous_results = previous_results or {"title": "Resemblance Analysis"}
-
-    df1 = pd.DataFrame(datasets[0]["data"])
-    df2 = pd.DataFrame(datasets[1]["data"])
+    df1, df2 = pd.DataFrame(datasets[0]["data"]), pd.DataFrame(datasets[1]["data"])
     fname1, fname2 = datasets[0]["filename"], datasets[1]["filename"]
-
     results = compute_resemblance(df1, df2, name1=fname1, name2=fname2)
 
     ctx = dash.callback_context
     button_id = ctx.triggered[0]["prop_id"].split(".")[0]
 
-    # --- JS Similarity ---
     if button_id == "run-js":
-
         scores = {col: metrics["JS Divergence"] for col, metrics in results["results"].items()}
         overall_js = results["overall"]["JS Divergence"]
+        previous_results["metric"] = "JS Divergence"
+        previous_results["scores"] = scores
+        previous_results["overall"] = float(overall_js)
 
-        fig = px.bar(
-            x=list(scores.keys()),
-            y=list(scores.values()),
-            labels={"x": "Attribute", "y": "JS Divergence (lower = more similar)"},
-            title=f"JS Similarity ({fname1} vs {fname2})"
-        )
-
-        previous_results["js"] = float(overall_js)
+        fig = px.bar(x=list(scores.keys()), y=list(scores.values()),
+                    labels={"x": "Attribute", "y": "JS Divergence"},
+                    title=f"JS Similarity ({fname1} vs {fname2})")
 
         return (
             html.Div([
-                dbc.Alert(
-                    "Jensen-Shannon Similarity measures how similar the distribution shapes (how spread the values) are.",
-                    color="info"
-                ),
+                dbc.Alert("Jensen-Shannon Similarity: lower values mean the two groups spread out in similar ways.", color="info"),
                 html.P(f"Overall JS Divergence: {overall_js:.4f}", style={"fontWeight": "bold"}),
-                dcc.Graph(figure=fig)
+                dcc.Graph(id="resemblance-graph", figure=fig),
+                html.H6("Filter attributes by threshold:"),
+                dcc.Slider(id="resemblance-threshold", min=0, max=1, step=0.05, value=0.2,
+                        marks={0: "0", 0.5: "0.5", 1: "1"},
+                        tooltip={"placement": "bottom", "always_visible": True}),
+                dbc.Button("Sort by Value", id="sort-button", color="dark", className="m-2"),  # <-- added here
+                html.P("Low values mean the two datasets look alike for that specific column/attribute. High values mean they differ more.", style={"fontStyle": "italic"})
             ]),
             previous_results
         )
 
-    # --- KS Comparison ---
     elif button_id == "run-ks":
-
         scores = {col: metrics["KS D-Statistic"] for col, metrics in results["results"].items()}
         overall_ks = results["overall"]["KS D-Statistic"]
+        previous_results["metric"] = "KS D-Statistic"
+        previous_results["scores"] = scores
+        previous_results["overall"] = float(overall_ks)
 
-        fig = px.bar(
-            x=list(scores.keys()),
-            y=list(scores.values()),
-            labels={"x": "Attribute", "y": "KS D-Statistic (lower = more similar)"},
-            title=f"KS Comparison ({fname1} vs {fname2})"
-        )
-
-        previous_results["ks"] = float(overall_ks)
+        fig = px.bar(x=list(scores.keys()), y=list(scores.values()),
+                    labels={"x": "Attribute", "y": "KS D-Statistic"},
+                    title=f"KS Comparison ({fname1} vs {fname2})")
 
         return (
             html.Div([
-                dbc.Alert(
-                    "Kolmogorov-Smirnov Statistic measures the maximum distribution difference (higher bar means higher mismatch/disagreement).",
-                    color="info"
-                ),
+                dbc.Alert("Kolmogorov-Smirnov Statistic: lower values mean less disagreement between groups.", color="info"),
                 html.P(f"Overall KS D-Statistic: {overall_ks:.4f}", style={"fontWeight": "bold"}),
-                dcc.Graph(figure=fig)
+                dcc.Graph(id="resemblance-graph", figure=fig),
+                html.H6("Filter attributes by threshold:"),
+                dcc.Slider(id="resemblance-threshold", min=0, max=1, step=0.05, value=0.2,
+                        marks={0: "0", 0.5: "0.5", 1: "1"},
+                        tooltip={"placement": "bottom", "always_visible": True}),
+                dbc.Button("Sort by Value", id="sort-button", color="dark", className="m-2"),
+                html.P("Low values mean the two datasets look alike for that specific column/attribute. High values mean they differ more.", style={"fontStyle": "italic"})
             ]),
             previous_results
         )
 
-    # --- Wasserstein Distance ---
     elif button_id == "run-wasserstein":
-
         scores = {col: metrics["Wasserstein"] for col, metrics in results["results"].items()}
         overall_w = results["overall"]["Wasserstein"]
+        previous_results["metric"] = "Wasserstein Distance"
+        previous_results["scores"] = scores
+        previous_results["overall"] = float(overall_w)
 
-        fig = px.bar(
-            x=list(scores.keys()),
-            y=list(scores.values()),
-            labels={"x": "Attribute", "y": "Wasserstein Distance (lower = more similar)"},
-            title=f"Wasserstein Distance ({fname1} vs {fname2})"
-        )
-
-        previous_results["wasserstein"] = float(overall_w)
+        fig = px.bar(x=list(scores.keys()), y=list(scores.values()),
+                    labels={"x": "Attribute", "y": "Wasserstein Distance"},
+                    title=f"Wasserstein Distance ({fname1} vs {fname2})")
 
         return (
             html.Div([
-                dbc.Alert(
-                    "Wasserstein Distance measures how much distributions must shift to match (higher bar means more effort needed to make the two match).",
-                    color="info"
-                ),
+                dbc.Alert("Wasserstein Distance: lower values mean less shifting needed to match distributions.", color="info"),
                 html.P(f"Overall Wasserstein Distance: {overall_w:.4f}", style={"fontWeight": "bold"}),
-                dcc.Graph(figure=fig)
+                dcc.Graph(id="resemblance-graph", figure=fig),
+                html.H6("Filter attributes by threshold:"),
+                dcc.Slider(id="resemblance-threshold", min=0, max=5, step=0.1, value=1.0,
+                        marks={0: "0", 2.5: "2.5", 5: "5"},
+                        tooltip={"placement": "bottom", "always_visible": True}),
+                dbc.Button("Sort by Value", id="sort-button", color="dark", className="m-2"),
+                html.P("Low values mean the two datasets look alike for that specific column/attribute. High values mean they differ more.", style={"fontStyle": "italic"})
             ]),
             previous_results
         )
-# Resemblance Tab Callback End --------
+
+
+# Resemblance Tab Callback B: filter slider
+@app.callback(
+    Output("resemblance-graph", "figure", allow_duplicate=True),
+    Input("resemblance-threshold", "value"),
+    State("store-resemblance-results", "data"),
+    prevent_initial_call=True
+)
+def update_resemblance_plot(threshold, stored_results):
+    if not stored_results or "scores" not in stored_results:
+        raise PreventUpdate
+
+    scores = stored_results["scores"]
+    metric = stored_results.get("metric", "")
+    filtered_scores = {col: val for col, val in scores.items() if val < threshold}
+    sorted_items = sorted(filtered_scores.items(), key=lambda x: x[1]) # automatically sorts lowest to highest from left to right
+
+    fig = px.bar(x=list(filtered_scores.keys()), y=list(filtered_scores.values()),
+                labels={"x": "Attribute", "y": f"{metric} (lower = more similar)"},
+                title=f"Filtered {metric} Results")
+    return fig
+
+# Resemblance Tab Callback C: sort button
+@app.callback(
+    Output("resemblance-graph", "figure"),
+    Input("sort-button", "n_clicks"),
+    State("store-resemblance-results", "data"),
+    State("resemblance-threshold", "value"),
+    prevent_initial_call=True
+)
+def sort_resemblance_plot(sort_clicks, stored_results, threshold):
+    if not stored_results or "scores" not in stored_results:
+        raise PreventUpdate
+
+    scores = stored_results["scores"]
+    metric = stored_results.get("metric", "")
+
+    # Apply threshold filter first
+    filtered_scores = {col: val for col, val in scores.items() if val < threshold}
+
+    # Sort by value ascending
+    sorted_items = sorted(filtered_scores.items(), key=lambda x: x[1])
+
+    fig = px.bar(
+        x=[col for col, val in sorted_items],
+        y=[val for col, val in sorted_items],
+        labels={"x": "Attribute", "y": f"{metric} (lower = more similar)"},
+        title=f"{metric} Results (sorted lowest → highest)"
+    )
+    return fig
+
+
+# Resemblance Tab Callback End ---------
 
 # Utility Tab Callback Start -------
 # Assignment Callback Start ------
@@ -706,7 +760,7 @@ def run_utility(tstr_click, trtr_click, datasets, assignments, previous_results)
 # Upload Callback
 @app.callback(
     Output("stored-model", "data", allow_duplicate=True),
-    Output("upload-status", "children",),
+    Output("upload-status", "children"),
     Input("upload-model", "contents"),
     State("upload-model", "filename"),
     prevent_initial_call=True
@@ -720,8 +774,8 @@ def store_uploaded_model(contents, filename):
         "filename": filename,
         "content": content_string
     }
-    
     return stored, dbc.Alert(f"Model '{filename}' uploaded successfully.", color="info")
+
 
 # Run SHAP Callback
 @app.callback(
@@ -752,35 +806,62 @@ def run_shap_explanation(n_clicks, model_data):
 
     plots = generate_shap_explanations(model, X_sample)
 
-    dependence_images = []
-    image_list = []   # collect base64 images for PDF
-
-    # Add global importance plot
-    image_list.append(plots["global_importance"])
-
+    # Collect images for PDF
+    image_list = [plots["global_importance"]]
+    dependence_dict = {}
     for key, img in plots.items():
         if key.startswith("dependence_"):
             feature_name = key.replace("dependence_", "")
-            dependence_images.append(html.Div([
-                html.H5(f"Dependence Plot: {feature_name}"),
-                html.Img(src="data:image/png;base64," + img, style={"width": "80%"})
-            ]))
-            image_list.append(img)   # add dependence plot image
+            dependence_dict[feature_name] = img
+            image_list.append(img)
 
+    # Store everything for later use
+    stored_data = {
+        "title": "XAI Results",
+        "summary": "SHAP explanations generated successfully.",
+        "global_importance": plots["global_importance"],
+        "dependence_plots": dependence_dict,
+        "images": image_list
+    }
+
+    # Only show global importance + filter control initially
     return (
         html.Div([
             dbc.Alert("SHAP explanations generated successfully.", color="success"),
             html.H5("1. Global Importance Pattern"),
             html.Img(src="data:image/png;base64," + plots["global_importance"], style={"width": "80%"}),
-            html.H5("2. Dependence Plots"),
-            html.Div(dependence_images)
+            html.H5("2. Select an Attribute to View Dependence Plot"),
+            dcc.Dropdown(
+                id="xai-attribute-filter",
+                options=[{"label": f, "value": f} for f in dependence_dict.keys()],
+                placeholder="Choose an attribute..."
+            ),
+            html.Div(id="xai-filtered-plot", style={"marginTop": "20px"})
         ]),
-        {
-            "title": "XAI Results",
-            "summary": "SHAP explanations generated successfully.",
-            "images": image_list   # <-- stored for PDF
-        }
+        stored_data
     )
+
+
+# Filter Callback
+@app.callback(
+    Output("xai-filtered-plot", "children"),
+    Input("xai-attribute-filter", "value"),
+    State("store-xai-results", "data"),
+    prevent_initial_call=True
+)
+def show_dependence_plot(attribute, shap_results):
+    if not attribute or not shap_results:
+        return dbc.Alert("Select an attribute to view its dependence plot.", color="info")
+    
+    img = shap_results["dependence_plots"].get(attribute)
+    if not img:
+        return dbc.Alert("No plot available for this attribute.", color="warning")
+
+    return html.Div([
+        html.H5(f"Dependence Plot: {attribute}"),
+        html.Img(src="data:image/png;base64," + img, style={"width": "80%"})
+    ])
+
 
 # XAI Tab End -------
 
@@ -803,13 +884,10 @@ import base64
 )
 def export_pdf(n_clicks, dpcm2_results, dpcm2_attributes, resemblance, utility, xai, datasets, assignments, model_files):
 
-    # Ignore if button was just created (refresh) but not clicked
     if not n_clicks or n_clicks == 0:
         raise PreventUpdate
 
-    # --- Check if any results exist ---
     if not (dpcm2_results or dpcm2_attributes or resemblance or utility or xai):
-        # No tests have been run yet → open modal, no file
         return None, True
 
     # Merge DPCM2 results
@@ -827,10 +905,24 @@ def export_pdf(n_clicks, dpcm2_results, dpcm2_attributes, resemblance, utility, 
         if "trtr" in utility:
             utility_data["trtr"] = utility["trtr"]
 
+    # ✅ Extract only overall resemblance values
+    resemblance_data = {}
+    if resemblance:
+        metric = resemblance.get("metric")
+        overall = resemblance.get("overall")
+
+        if metric and overall is not None:
+            if "JS" in metric:
+                resemblance_data["js"] = overall
+            elif "KS" in metric:
+                resemblance_data["ks"] = overall
+            elif "Wasserstein" in metric:
+                resemblance_data["wasserstein"] = overall
+
     # Create PDF report
     pdf_bytes = create_pdf_report(
         dpcm2=dpcm2_data,
-        resemblance=resemblance,
+        resemblance=resemblance_data,   # <-- only overall values
         utility=utility_data,
         xai=xai,
         datasets=datasets,
@@ -846,8 +938,9 @@ def export_pdf(n_clicks, dpcm2_results, dpcm2_attributes, resemblance, utility, 
         "type": "application/pdf",
         "base64": True
     }, False
+# PDF Callback End -----
 
-#PDF Callback End -----
+
 
 # Modal Callback for Error in Export Button
 @app.callback(
