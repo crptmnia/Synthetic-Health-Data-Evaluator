@@ -70,20 +70,22 @@ Before running the application, please make sure you have the following installe
 - Git
 
 ### Steps
-1. Clone the repository
+1. Clone the repository.
    Open a terminal and run:
-   bash
+   ```bash
    git clone https://github.com/yourusername/synthetic-health-evaluator.git
-   cd synthetic-health-evaluator
+   cd synthetic-health-data-evaluator
 2. Create the environment  
-   Instead of manually pinning versions, this project uses a requirements.txt file to auto‑detect and install the correct versions:
+   Instead of manually pinning versions, this project uses a `requirements.txt` file to auto‑detect and install the correct versions:
+   ```bash
    conda create -n thesis_env 
    conda activate thesis_env
    pip install -r requirements.txt
 3. Run the dashboard
    Start the application (on any terminal )via:
+   ```bash
    python thesis_frontend.py
-4. Open your browser and access the app via:
+5. Open your browser and access the app via:
    http://127.0.0.1:8050/
 
 
