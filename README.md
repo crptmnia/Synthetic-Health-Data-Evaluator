@@ -76,9 +76,10 @@ Before running the application, please make sure you have the following installe
    git clone https://github.com/yourusername/synthetic-health-evaluator.git
    cd synthetic-health-evaluator
 2. Create the environment  
-   Use the provided thesis_env.yml file to recreate the environment:
-   conda env create -f thesis_env.yml
+   Instead of manually pinning versions, this project uses a requirements.txt file to auto‑detect and install the correct versions:
+   conda create -n thesis_env 
    conda activate thesis_env
+   pip install -r requirements.txt
 3. Run the dashboard
    Start the application (on any terminal )via:
    python thesis_frontend.py
